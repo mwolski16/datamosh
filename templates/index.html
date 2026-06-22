@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Datamosh Studio</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="scanlines" aria-hidden="true"></div>
+    <div id="tooltip" class="tooltip hidden" role="tooltip"></div>
+
+    <div class="page">
+      <header class="hero">
+        <p class="eyebrow">H.264 bitstream toolkit</p>
+        <h1>Datamosh Studio</h1>
+        <p class="lede">
+          Strip IDR frames, splice clips, and stretch P-frame smear. Hover the
+          <span class="help-inline">?</span> icons to learn what each control does.
+        </p>
+      </header>
+
+      <main class="layout">
+        <section class="panel controls">
+          <h2>Inputs</h2>
+
+          <label class="field" data-tooltip-id="mode">
+            <span class="label-row">
+              <span>Mode</span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="mode" aria-label="Help: Mode">?</button>
+            </span>
+            <select id="mode">
+              <option value="single">Single clip</option>
+              <option value="two">Splice two clips</option>
+              <option value="transition">Datamosh transition</option>
+            </select>
+          </label>
+
+          <div id="splice-banner" class="splice-banner hidden">
+            <p>
+              The <strong>anchor</strong> clip supplies the frozen base image (first I-frame).
+              The <strong>motion</strong> clip’s P-frames are spliced on top — classic cross-clip
+              datamosh smear.
+            </p>
+          </div>
+
+          <div id="transition-banner" class="splice-banner hidden">
+            <p>
+              <strong>Video 1</strong> plays clean, then a datamosh bridge uses video 1’s pixels
+              at the cut with <strong>video 2’s movement</strong>, then video 2 continues clean.
+            </p>
+          </div>
+
+          <div class="dropzone hidden" id="reference-dropzone" data-tooltip-id="reference">
+            <div class="dropzone-header">
+              <p class="drop-title" id="reference-drop-title">Anchor clip</p>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="reference" aria-label="Help: Anchor clip">?</button>
+            </div>
+            <input id="reference-input" type="file" accept="video/*" hidden />
+            <p class="drop-hint" id="reference-drop-hint">Still image / decode anchor — first I-frame is kept</p>
+            <p class="drop-file" id="reference-name">No file selected</p>
+          </div>
+
+          <button type="button" id="swap-clips" class="swap-clips hidden" aria-label="Swap anchor and motion clips">
+            ⇅ Swap clips
+          </button>
+
+          <div class="dropzone" id="source-dropzone" data-tooltip-id="source">
+            <div class="dropzone-header">
+              <p class="drop-title" id="source-drop-title">Source video</p>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="source" aria-label="Help: Source video">?</button>
+            </div>
+            <input id="source-input" type="file" accept="video/*" hidden />
+            <p class="drop-hint" id="source-drop-hint">Drop a clip or click to browse</p>
+            <p class="drop-file" id="source-name">No file selected</p>
+          </div>
+
+          <h2>Presets</h2>
+          <p class="preset-hint">
+            Presets fill effect settings. In splice or transition mode, single-clip presets keep your mode and clips.
+            Edit <code>config/presets.json</code> to customize.
+          </p>
+          <div id="preset-grid" class="preset-grid" role="list"></div>
+
+          <h2>Effect</h2>
+
+          <label class="field slider-field" data-tooltip-id="mosh_start_seconds" id="mosh-start-field">
+            <span class="label-row">
+              <span><span id="mosh-start-label">Mosh start</span> <strong id="mosh-start-value">0.0s</strong></span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="mosh_start_seconds" aria-label="Help: Mosh start">?</button>
+            </span>
+            <input id="mosh-start" type="range" min="0" max="0" step="0.1" value="0" disabled />
+          </label>
+
+          <label class="field slider-field hidden" data-tooltip-id="transition_duration_seconds" id="transition-duration-field">
+            <span class="label-row">
+              <span>Transition length <strong id="transition-duration-value">2.0s</strong></span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="transition_duration_seconds" aria-label="Help: Transition length">?</button>
+            </span>
+            <input id="transition-duration" type="range" min="0.5" max="0.5" step="0.1" value="2" disabled />
+          </label>
+
+          <label class="field slider-field" data-tooltip-id="mosh_end_seconds" id="mosh-end-field">
+            <span class="label-row">
+              <span>Mosh end <strong id="mosh-end-value">end of clip</strong></span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="mosh_end_seconds" aria-label="Help: Mosh end">?</button>
+            </span>
+            <input id="mosh-end" type="range" min="0" max="0" step="0.1" value="0" disabled />
+          </label>
+
+          <label class="field slider-field" data-tooltip-id="gop">
+            <span class="label-row">
+              <span>GOP length <strong id="gop-value">250</strong></span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="gop" aria-label="Help: GOP length">?</button>
+            </span>
+            <input id="gop" type="range" min="12" max="600" step="1" value="250" />
+          </label>
+
+          <label class="field slider-field" data-tooltip-id="duplicate_copies">
+            <span class="label-row">
+              <span>P-frame duplicates <strong id="duplicate-value">0</strong></span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="duplicate_copies" aria-label="Help: P-frame duplicates">?</button>
+            </span>
+            <input id="duplicate-copies" type="range" min="0" max="8" step="1" value="0" />
+          </label>
+
+          <label class="field slider-field" data-tooltip-id="duplicate_probability">
+            <span class="label-row">
+              <span>Duplicate chance <strong id="probability-value">100%</strong></span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="duplicate_probability" aria-label="Help: Duplicate chance">?</button>
+            </span>
+            <input
+              id="duplicate-probability"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="100"
+            />
+          </label>
+
+          <label class="field" data-tooltip-id="keep_first_idr">
+            <span class="label-row">
+              <span>Keep first IDR frames</span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="keep_first_idr" aria-label="Help: Keep first IDR frames">?</button>
+            </span>
+            <input id="keep-first-idr" type="number" min="0" max="20" value="1" />
+          </label>
+
+          <label class="field" data-tooltip-id="width">
+            <span class="label-row">
+              <span>Output width (optional)</span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="width" aria-label="Help: Output width">?</button>
+            </span>
+            <input id="width" type="number" min="160" max="3840" step="2" placeholder="auto" />
+          </label>
+
+          <label class="field" data-tooltip-id="crf">
+            <span class="label-row">
+              <span>CRF</span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="crf" aria-label="Help: CRF">?</button>
+            </span>
+            <input id="crf" type="number" min="0" max="51" value="18" />
+          </label>
+
+          <label class="field" data-tooltip-id="seed">
+            <span class="label-row">
+              <span>Random seed (optional)</span>
+              <button type="button" class="tooltip-trigger" data-tooltip-id="seed" aria-label="Help: Random seed">?</button>
+            </span>
+            <input id="seed" type="number" placeholder="random" />
+          </label>
+
+          <div class="checks">
+            <label data-tooltip-id="remove_sps_pps">
+              <span class="check-row">
+                <span><input id="remove-sps-pps" type="checkbox" /> Remove SPS/PPS</span>
+                <button type="button" class="tooltip-trigger" data-tooltip-id="remove_sps_pps" aria-label="Help: Remove SPS/PPS">?</button>
+              </span>
+            </label>
+            <label data-tooltip-id="no_prep">
+              <span class="check-row">
+                <span><input id="no-prep" type="checkbox" /> Skip prep re-encode</span>
+                <button type="button" class="tooltip-trigger" data-tooltip-id="no_prep" aria-label="Help: Skip prep re-encode">?</button>
+              </span>
+            </label>
+            <label data-tooltip-id="no_audio">
+              <span class="check-row">
+                <span><input id="no-audio" type="checkbox" /> Drop audio</span>
+                <button type="button" class="tooltip-trigger" data-tooltip-id="no_audio" aria-label="Help: Drop audio">?</button>
+              </span>
+            </label>
+          </div>
+
+          <button id="mosh-button" class="primary" type="button">Datamosh</button>
+
+          <div id="progress-panel" class="progress hidden" aria-live="polite">
+            <div class="progress-meta">
+              <span id="progress-percent">0%</span>
+              <span id="progress-stage">Starting…</span>
+            </div>
+            <div class="progress-track">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+          </div>
+
+          <p id="status" class="status" role="status"></p>
+        </section>
+
+        <section class="panel preview">
+          <div class="preview-grid" id="preview-grid">
+            <article class="preview-card hidden" id="anchor-preview-card">
+              <h3 id="reference-preview-label">Anchor</h3>
+              <video id="reference-preview" controls playsinline></video>
+            </article>
+            <article class="preview-card">
+              <h3 id="source-preview-label">Source</h3>
+              <video id="source-preview" controls playsinline></video>
+            </article>
+            <article class="preview-card">
+              <h3>Output</h3>
+              <video id="output-preview" controls playsinline></video>
+              <a id="download-link" class="download hidden" download>Download MP4</a>
+            </article>
+          </div>
+
+          <dl class="stats hidden" id="stats">
+            <div><dt>Mode</dt><dd id="stat-mode"></dd></div>
+            <div><dt>Transition</dt><dd id="stat-mosh-window">0s → end</dd></div>
+            <div><dt>IDR frames</dt><dd id="stat-idr"></dd></div>
+            <div><dt>Output</dt><dd id="stat-output"></dd></div>
+          </dl>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
