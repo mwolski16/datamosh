@@ -8,6 +8,7 @@ from h264_stream import (
     build_transition_stream,
     count_idr_frames,
     duplicate_p_frames,
+    extract_header_at_vcl,
     extract_header_nals,
     idr_vcl_indices,
     splice_streams,
@@ -51,6 +52,19 @@ class H264StreamTests(unittest.TestCase):
         self.assertNotIn(b"\xcc", spliced)
         self.assertEqual(count_idr_frames(spliced), 1)
 
+    def test_extract_header_at_vcl_uses_last_idr_before_cut(self) -> None:
+        clip_a = (
+            _nal(7)
+            + _nal(8)
+            + _nal(5, b"\xa1")
+            + _nal(1, b"\xa2")
+            + _nal(1, b"\xa3")
+            + _nal(5, b"\xa4")
+        )
+        header = extract_header_at_vcl(clip_a, 2)
+        self.assertIn(b"\xa1", header)
+        self.assertNotIn(b"\xa4", header)
+
     def test_build_transition_stream(self) -> None:
         clip_a = (
             _nal(7)
@@ -78,14 +92,34 @@ class H264StreamTests(unittest.TestCase):
             clip_a,
             clip_b,
             transition_start_vcl=3,
-            transition_vcl_count=2,
+            motion_start_vcl=0,
+            motion_end_vcl=3,
+            suffix_start_vcl=3,
         )
         self.assertIn(b"\xa4", transition)
         self.assertIn(b"\xb2", transition)
+        self.assertIn(b"\xb3", transition)
         self.assertIn(b"\xb4", transition)
         self.assertIn(b"\xb5", transition)
         self.assertNotIn(b"\xb1", transition)
         self.assertGreaterEqual(count_idr_frames(transition), 2)
+
+    def test_extract_clean_suffix(self) -> None:
+        clip_b = (
+            _nal(7)
+            + _nal(8)
+            + _nal(5, b"\xb1")
+            + _nal(1, b"\xb2")
+            + _nal(1, b"\xb3")
+            + _nal(5, b"\xb4")
+            + _nal(1, b"\xb5")
+        )
+        from h264_stream import extract_clean_suffix
+
+        suffix = extract_clean_suffix(clip_b, 3)
+        self.assertIn(b"\xb4", suffix)
+        self.assertIn(b"\xb5", suffix)
+        self.assertNotIn(b"\xb2", suffix)
 
     def test_transition_bridge_limits_with_mid_keyframe(self) -> None:
         clip_b = (

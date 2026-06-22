@@ -22,7 +22,7 @@
   "transition_duration_seconds": {
     "title": "Transition length",
     "summary": "How long the datamosh bridge between video 1 and video 2 lasts.",
-    "effect": "Video 2's P-frames drive the smear for this duration while decoding against video 1's frame at the cut point. Capped at video 2's length minus 0.5s so the clean ending can play. After the bridge, video 2 resumes from where the transition left off."
+    "effect": "Video 2's P-frames drive the smear for this duration while decoding against video 1's frame at the cut point. With prep enabled, keyframes are forced at the cut and at the end of this window so the bridge length matches the slider and video 2 resumes cleanly afterward."
   },
   "mosh_end_seconds": {
     "title": "Mosh end",

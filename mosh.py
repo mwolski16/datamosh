@@ -10,8 +10,10 @@ from ffmpeg_util import extract_h264, prep_video, probe_duration, probe_fps, rem
 from h264_stream import (
     build_transition_stream,
     count_idr_frames,
+    count_vcl_frames,
     duplicate_p_frames,
     extract_header_nals,
+    idr_vcl_indices,
     strip_idr_frames,
     transition_bridge_limits,
 )
@@ -42,6 +44,8 @@ class TransitionWindow:
     start_vcl_index: int
     duration_seconds: float
     duration_vcl_count: int
+    motion_start_vcl: int
+    suffix_start_vcl: int
 
 
 @dataclass(frozen=True)
@@ -211,30 +215,124 @@ def _resolve_transition_window(
         )
 
     start_vcl = min(int(resolved_start * fps_a), max_vcl_a)
-    duration_vcl = min(max(int(duration * fps_b), 1), max_vcl_b)
+    motion_start_vcl = min(int(resolved_start * fps_b), max(int(duration_b * fps_b) - 1, 0))
+    duration_vcl = min(max(int(duration * fps_b), 1), max_vcl_b - motion_start_vcl)
+    suffix_start_vcl = motion_start_vcl + duration_vcl
+
+    if suffix_start_vcl > max_vcl_b:
+        raise ValueError(
+            f"Transition length extends past the end of video 2 ({duration_b:.2f}s)."
+        )
 
     return TransitionWindow(
         start_seconds=resolved_start,
         start_vcl_index=start_vcl,
         duration_seconds=duration,
         duration_vcl_count=duration_vcl,
+        motion_start_vcl=motion_start_vcl,
+        suffix_start_vcl=suffix_start_vcl,
     )
 
 
 def _format_transition_window(window: TransitionWindow) -> str:
     return (
         f"{window.start_seconds:.2f}s (f{window.start_vcl_index}) + "
-        f"{window.duration_seconds:.2f}s ({window.duration_vcl_count} frames)"
+        f"{window.duration_seconds:.2f}s bridge (B f{window.motion_start_vcl}→f{window.suffix_start_vcl})"
     )
 
 
-def _transition_gop_for_clip_b(options: MoshOptions, clip_b: Path) -> int:
-    """Use a shorter GOP on video 2 so a mid-clip keyframe exists for the clean tail."""
-    duration_b = probe_duration(clip_b)
-    fps_b = probe_fps(clip_b)
-    frame_count = max(int(duration_b * fps_b), 1)
-    target = max(frame_count // 2, 12)
-    return min(options.gop, target)
+def _transition_gop_for_clip_a(options: MoshOptions) -> int:
+    """Short GOP on video 1 so the cut can land on a nearby keyframe."""
+    return min(options.gop, 30)
+
+
+def _transition_gop_for_clip_b(options: MoshOptions) -> int:
+    """Short GOP on video 2 so keyframes exist for the clean tail after the bridge."""
+    return min(options.gop, 30)
+
+
+def _recalculate_transition_vcl_indices(
+    transition: TransitionWindow,
+    clip_a_payload: bytes,
+    clip_b_payload: bytes,
+    fps_a: float,
+    fps_b: float,
+) -> TransitionWindow:
+    """Map the user-facing transition window onto prepared bitstreams."""
+    max_vcl_a = max(count_vcl_frames(clip_a_payload) - 1, 0)
+    max_vcl_b = count_vcl_frames(clip_b_payload)
+    start_vcl = min(int(transition.start_seconds * fps_a), max_vcl_a)
+    motion_start = min(int(transition.start_seconds * fps_b), max(max_vcl_b - 1, 0))
+    duration_vcl = min(
+        max(int(transition.duration_seconds * fps_b), 1),
+        max(0, max_vcl_b - motion_start),
+    )
+    suffix_start = motion_start + duration_vcl
+    return TransitionWindow(
+        start_seconds=transition.start_seconds,
+        start_vcl_index=start_vcl,
+        duration_seconds=transition.duration_seconds,
+        duration_vcl_count=duration_vcl,
+        motion_start_vcl=motion_start,
+        suffix_start_vcl=suffix_start,
+    )
+
+
+def _validate_transition_clip_a_keyframe(
+    clip_a_payload: bytes,
+    start_vcl: int,
+    fps_a: float,
+) -> None:
+    """The bridge needs video 1's pixels at the cut, not an earlier keyframe."""
+    idrs = idr_vcl_indices(clip_a_payload)
+    anchor = max((index for index in idrs if index <= start_vcl), default=None)
+    if anchor is None:
+        raise ValueError(
+            "Video 1 has no keyframe before the transition cut. "
+            "Enable prep re-encode or move the transition start to a keyframe."
+        )
+
+    max_frame_skew = max(int(fps_a * 0.05), 1)
+    if start_vcl - anchor > max_frame_skew:
+        raise ValueError(
+            f"Video 1 has no keyframe at the transition cut ({start_vcl / fps_a:.2f}s). "
+            f"The nearest keyframe is {anchor / fps_a:.2f}s — enable prep re-encode so an "
+            "I-frame is forced at the cut, or move the transition start to a keyframe."
+        )
+
+
+def _align_transition_to_stream(
+    transition: TransitionWindow,
+    clip_b_payload: bytes,
+    fps_b: float,
+) -> TransitionWindow:
+    """Snap the clean tail to the next keyframe on video 2's timeline."""
+    idrs = idr_vcl_indices(clip_b_payload)
+    total = count_vcl_frames(clip_b_payload)
+    if total == 0:
+        raise ValueError("Video 2 has no frames.")
+
+    suffix_start = next((index for index in idrs if index >= transition.suffix_start_vcl), None)
+    if suffix_start is None:
+        max_vcl, max_seconds, _ = transition_bridge_limits(clip_b_payload, fps_b)
+        raise ValueError(
+            f"Video 2 has no keyframe after {transition.duration_seconds:.1f}s for a clean handoff. "
+            f"Shorten the transition to {max(max_seconds - transition.start_seconds, 0.5):.1f}s or less, "
+            "or keep prep re-encode enabled."
+        )
+
+    duration_vcl = suffix_start - transition.motion_start_vcl
+    if duration_vcl < 1:
+        raise ValueError("Transition length is too short for a datamosh bridge.")
+
+    return TransitionWindow(
+        start_seconds=transition.start_seconds,
+        start_vcl_index=transition.start_vcl_index,
+        duration_seconds=duration_vcl / fps_b,
+        duration_vcl_count=duration_vcl,
+        motion_start_vcl=transition.motion_start_vcl,
+        suffix_start_vcl=suffix_start,
+    )
 
 
 def _validate_transition_against_stream(
@@ -242,22 +340,20 @@ def _validate_transition_against_stream(
     clip_b_payload: bytes,
     fps_b: float,
 ) -> None:
-    max_vcl, max_seconds, suffix_idr = transition_bridge_limits(clip_b_payload, fps_b)
-    if transition.duration_vcl_count <= max_vcl:
-        return
+    total = count_vcl_frames(clip_b_payload)
+    if transition.suffix_start_vcl > total:
+        raise ValueError("Transition length exceeds video 2 frame count.")
 
-    if suffix_idr is None:
+    if transition.suffix_start_vcl not in idr_vcl_indices(clip_b_payload):
         raise ValueError(
-            "Video 2 has no keyframe after its opening frame, so a clean ending cannot start "
-            f"after a {transition.duration_seconds:.1f}s bridge. Shorten the transition to "
-            f"{max_seconds:.1f}s or less, or keep prep re-encode enabled so video 2 gets a "
-            "shorter GOP with extra keyframes."
+            f"Video 2 needs a keyframe at {transition.suffix_start_vcl / fps_b:.1f}s "
+            "to resume cleanly after the bridge. Keep prep re-encode enabled."
         )
 
-    raise ValueError(
-        f"Video 2's next keyframe is at {suffix_idr / fps_b:.1f}s. Shorten the transition to "
-        f"{max_seconds:.1f}s or less so the clean video 2 tail can start at that keyframe."
-    )
+    if transition.suffix_start_vcl >= total:
+        raise ValueError(
+            "Transition length must leave at least one frame of clean video 2 after the bridge."
+        )
 
 
 def mosh_single(
@@ -395,7 +491,7 @@ def mosh_two_clip(
     header = extract_header_nals(ref_payload)
     body, idr_auto_kept = _strip_with_mp4_safety(
         target_payload,
-        keep_first=options.keep_first_idr,
+        keep_first=0,
         remove_sps_pps=True,
         start_vcl_index=mosh_window.start_vcl_index,
         end_vcl_index=mosh_window.end_vcl_index,
@@ -453,23 +549,34 @@ def mosh_transition(
     clip_a_path = working / f"{output.stem}.a.h264"
     clip_b_path = working / f"{output.stem}.b.h264"
 
+    transition = _resolve_transition_window(
+        clip_a,
+        clip_b,
+        options.mosh_start_seconds,
+        options.transition_duration_seconds,
+    )
+    suffix_seconds = transition.start_seconds + transition.duration_seconds
+
     if options.prep:
-        report(10, "Preparing video 1")
+        report(10, "Preparing video 1 (keyframe at transition cut)")
+        gop_a = _transition_gop_for_clip_a(options)
         prep_video(
             clip_a,
             clip_a_path,
             width=options.width,
             crf=options.crf,
-            gop=options.gop,
+            gop=gop_a,
+            force_key_frames=[transition.start_seconds],
         )
-        report(30, "Preparing video 2 (shorter GOP for clean transition tail)")
-        gop_b = _transition_gop_for_clip_b(options, clip_b)
+        report(30, "Preparing video 2 (keyframes for bridge + clean tail)")
+        gop_b = _transition_gop_for_clip_b(options)
         prep_video(
             clip_b,
             clip_b_path,
             width=options.width,
             crf=options.crf,
             gop=gop_b,
+            force_key_frames=[transition.start_seconds, suffix_seconds],
         )
     else:
         report(15, "Extracting video 1 H.264 stream")
@@ -482,13 +589,21 @@ def mosh_transition(
     clip_b_payload = _read_bytes(clip_b_path)
     idr_before = count_idr_frames(clip_a_payload) + count_idr_frames(clip_b_payload)
 
-    transition = _resolve_transition_window(
-        clip_a,
-        clip_b,
-        options.mosh_start_seconds,
-        options.transition_duration_seconds,
+    fps_a = probe_fps(clip_a_path)
+    fps_b = probe_fps(clip_b_path)
+    transition = _recalculate_transition_vcl_indices(
+        transition,
+        clip_a_payload,
+        clip_b_payload,
+        fps_a,
+        fps_b,
     )
-    fps_b = probe_fps(clip_b)
+    _validate_transition_clip_a_keyframe(
+        clip_a_payload,
+        transition.start_vcl_index,
+        fps_a,
+    )
+    transition = _align_transition_to_stream(transition, clip_b_payload, fps_b)
     _validate_transition_against_stream(transition, clip_b_payload, fps_b)
     report(52, f"Transition: {_format_transition_window(transition)}")
 
@@ -496,8 +611,9 @@ def mosh_transition(
         clip_a_payload,
         clip_b_payload,
         transition_start_vcl=transition.start_vcl_index,
-        transition_vcl_count=transition.duration_vcl_count,
-        keep_first_idr=options.keep_first_idr,
+        motion_start_vcl=transition.motion_start_vcl,
+        motion_end_vcl=transition.suffix_start_vcl,
+        suffix_start_vcl=transition.suffix_start_vcl,
         duplicate_copies=options.duplicate_copies,
         duplicate_probability=options.duplicate_probability,
         seed=options.seed,
@@ -510,8 +626,9 @@ def mosh_transition(
             clip_a_payload,
             clip_b_payload,
             transition_start_vcl=transition.start_vcl_index,
-            transition_vcl_count=transition.duration_vcl_count,
-            keep_first_idr=1,
+            motion_start_vcl=transition.motion_start_vcl,
+            motion_end_vcl=transition.suffix_start_vcl,
+            suffix_start_vcl=transition.suffix_start_vcl,
             duplicate_copies=options.duplicate_copies,
             duplicate_probability=options.duplicate_probability,
             seed=options.seed,

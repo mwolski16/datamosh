@@ -96,8 +96,7 @@ def transition_bridge_limits(data: bytes, fps: float) -> tuple[int, float, Optio
     """
     Return (max_bridge_vcl, max_bridge_seconds, suffix_idr_vcl).
 
-    ``suffix_idr_vcl`` is where a clean video 2 tail can begin. When only the
-    opening IDR exists, suffix is None and the bridge may consume the whole clip.
+    The bridge may end at any IDR index > 0; the clean tail starts on that keyframe.
     """
     if fps <= 0:
         raise ValueError("fps must be > 0")
@@ -114,6 +113,50 @@ def transition_bridge_limits(data: bytes, fps: float) -> tuple[int, float, Optio
         suffix_idr = None
 
     return max_vcl, max_vcl / fps, suffix_idr
+
+
+def extract_clean_suffix(data: bytes, start_vcl: int) -> bytes:
+    """
+    Clean tail from ``start_vcl`` through EOF, keeping every slice and IDR.
+
+    ``start_vcl`` must land on an IDR so the decoder resets before video 2 resumes.
+    """
+    if start_vcl < 0:
+        raise ValueError("start_vcl must be >= 0")
+
+    sps_pps: List[NalUnit] = []
+    for unit in iter_nal_units(data):
+        if unit.is_sps or unit.is_pps:
+            sps_pps.append(unit)
+        else:
+            break
+
+    output: List[NalUnit] = []
+    current = 0
+    started = False
+
+    for unit in iter_nal_units(data):
+        if unit.is_sps or unit.is_pps:
+            continue
+        if unit.is_vcl:
+            if not started:
+                if current < start_vcl:
+                    current += 1
+                    continue
+                if not unit.is_idr:
+                    raise ValueError(
+                        f"Clean suffix must start on a keyframe (VCL {start_vcl} is not IDR)."
+                    )
+                output = sps_pps + [unit]
+                started = True
+                current += 1
+                continue
+            output.append(unit)
+            current += 1
+        elif started:
+            output.append(unit)
+
+    return join_nal_units(output)
 
 
 def _in_mosh_region(
@@ -394,8 +437,9 @@ def build_transition_stream(
     clip_b: bytes,
     *,
     transition_start_vcl: int,
-    transition_vcl_count: int,
-    keep_first_idr: int = 0,
+    motion_start_vcl: int,
+    motion_end_vcl: int,
+    suffix_start_vcl: int,
     duplicate_copies: int = 0,
     duplicate_probability: float = 1.0,
     seed: Optional[int] = None,
@@ -403,32 +447,39 @@ def build_transition_stream(
     """
     Video 1 (clean prefix) -> datamosh bridge -> video 2 (clean suffix).
 
-    The bridge uses clip A's frame at the cut as the decode anchor and clip B's
-    P-frames for ``transition_vcl_count`` frames. Clip B then resumes with a fresh IDR.
+    The bridge splices video 1's frame at the cut (decode anchor) with video 2's
+    P-frames only — every IDR is stripped from the bridge so motion bleeds through
+    video 1's pixels. Video 2 then resumes cleanly from ``suffix_start_vcl``.
     """
-    if transition_vcl_count < 1:
-        raise ValueError("transition must include at least one frame from video 2.")
+    if motion_end_vcl <= motion_start_vcl:
+        raise ValueError("Transition bridge must include at least one frame from video 2.")
 
     prefix = split_stream_before_vcl(clip_a, transition_start_vcl)
     header = extract_header_at_vcl(clip_a, transition_start_vcl)
     transition_body = extract_vcl_range(
         clip_b,
-        0,
-        transition_vcl_count,
+        motion_start_vcl,
+        motion_end_vcl,
         strip_idr=True,
-        keep_first_idr=keep_first_idr,
+        keep_first_idr=0,
     )
     if not transition_body:
         raise ValueError("Transition segment is empty — video 2 may be too short.")
 
-    transition_segment = header + transition_body
     if duplicate_copies > 0:
-        transition_segment = duplicate_p_frames(
-            transition_segment,
+        transition_body = duplicate_p_frames(
+            transition_body,
             copies=duplicate_copies,
             probability=duplicate_probability,
             seed=seed,
         )
 
-    suffix = extract_stream_from_vcl_keyframe(clip_b, transition_vcl_count)
+    transition_segment = header + transition_body
+    suffix = extract_clean_suffix(clip_b, suffix_start_vcl)
+    if not suffix:
+        raise ValueError(
+            f"No clean video 2 tail from frame {suffix_start_vcl}. "
+            "Enable prep re-encode so a keyframe lands at the end of the transition."
+        )
+
     return prefix + transition_segment + suffix

@@ -43,6 +43,7 @@ def prep_video(
     width: Optional[int] = None,
     crf: int = 18,
     gop: int = 250,
+    force_key_frames: Optional[Sequence[float]] = None,
 ) -> None:
     """Re-encode to long-GOP H.264 with no B-frames for predictable moshing."""
     if width:
@@ -73,6 +74,9 @@ def prep_video(
         "-bf",
         "0",
     ]
+    if force_key_frames:
+        times = ",".join(f"{seconds:.6f}" for seconds in force_key_frames)
+        video_args.extend(["-force_key_frames", times])
     command = ["-y", "-i", str(source), "-an", "-vf", scale_filter]
     command.extend(video_args)
     command.extend(["-f", "h264", str(destination)])
