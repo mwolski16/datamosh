@@ -44,12 +44,14 @@ const duplicateInput = document.getElementById("duplicate-copies");
 const duplicateValue = document.getElementById("duplicate-value");
 const probabilityInput = document.getElementById("duplicate-probability");
 const probabilityValue = document.getElementById("probability-value");
-const presetGrid = document.getElementById("preset-grid");
+const presetSelect = document.getElementById("preset-select");
+const presetDescription = document.getElementById("preset-description");
 
 let sourceObjectUrl = null;
 let referenceObjectUrl = null;
 let tooltipConfig = {};
 let pollTimer = null;
+let loadedPresets = [];
 let activePresetId = null;
 
 async function readJsonResponse(response) {
@@ -545,9 +547,8 @@ function applyPreset(preset) {
   document.getElementById("no-audio").checked = Boolean(preset.no_audio);
 
   activePresetId = preset.id;
-  document.querySelectorAll(".preset-button").forEach((button) => {
-    button.classList.toggle("active", button.dataset.presetId === preset.id);
-  });
+  presetSelect.value = preset.id;
+  updatePresetDescription();
 
   const keptDualMode =
     isDualClipMode() && presetMode !== "two" && presetMode !== "transition";
@@ -558,21 +559,35 @@ function applyPreset(preset) {
   );
 }
 
-function renderPresets(presets) {
-  presetGrid.innerHTML = "";
-  presets.forEach((preset) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "preset-button";
-    button.dataset.presetId = preset.id;
-    button.innerHTML = `
-      <span class="preset-name">${escapeHtml(preset.name)}</span>
-      <span class="preset-desc">${escapeHtml(preset.description || "")}</span>
-    `;
-    button.addEventListener("click", () => applyPreset(preset));
-    presetGrid.appendChild(button);
-  });
+function updatePresetDescription() {
+  const preset = loadedPresets.find((item) => item.id === presetSelect.value);
+  presetDescription.textContent = preset?.description || "";
 }
+
+function renderPresets(presets) {
+  loadedPresets = presets;
+  presetSelect.innerHTML = '<option value="">Choose a preset…</option>';
+  presets.forEach((preset) => {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.name;
+    presetSelect.appendChild(option);
+  });
+  if (activePresetId) {
+    presetSelect.value = activePresetId;
+  }
+  updatePresetDescription();
+}
+
+presetSelect.addEventListener("change", () => {
+  const preset = loadedPresets.find((item) => item.id === presetSelect.value);
+  if (preset) {
+    applyPreset(preset);
+    return;
+  }
+  activePresetId = null;
+  updatePresetDescription();
+});
 
 async function loadPresets() {
   try {

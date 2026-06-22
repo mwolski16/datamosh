@@ -184,57 +184,16 @@ h1 {
   transition: width 0.25s ease;
 }
 
-.preset-hint {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 0.84rem;
-  line-height: 1.5;
-}
-
-.preset-hint code {
-  color: var(--accent-2);
-  font-size: 0.8rem;
-}
-
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.preset-field {
   margin-bottom: 20px;
 }
 
-.preset-button {
-  display: grid;
-  gap: 4px;
-  text-align: left;
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  background: #0d1119;
-  color: var(--text);
-  padding: 10px 12px;
-  cursor: pointer;
-  transition: border-color 0.2s ease, transform 0.2s ease;
-}
-
-.preset-button:hover,
-.preset-button.active {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-}
-
-.preset-button.active {
-  background: linear-gradient(135deg, rgba(255, 79, 216, 0.12), rgba(57, 255, 232, 0.08));
-}
-
-.preset-name {
-  font-size: 0.88rem;
-  font-weight: 700;
-}
-
 .preset-desc {
-  font-size: 0.76rem;
-  line-height: 1.4;
+  margin: 0;
+  min-height: 1.2rem;
   color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .layout {

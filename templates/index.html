@@ -76,11 +76,15 @@
           </div>
 
           <h2>Presets</h2>
-          <p class="preset-hint">
-            Presets fill effect settings. In splice or transition mode, single-clip presets keep your mode and clips.
-            Edit <code>config/presets.json</code> to customize.
-          </p>
-          <div id="preset-grid" class="preset-grid" role="list"></div>
+          <label class="field preset-field">
+            <span class="label-row">
+              <span>Preset</span>
+            </span>
+            <select id="preset-select">
+              <option value="">Choose a preset…</option>
+            </select>
+            <p class="preset-desc" id="preset-description"></p>
+          </label>
 
           <h2>Effect</h2>
 
