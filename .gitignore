@@ -19,3 +19,5 @@ workspace/
 
 # Local test artifacts
 samples/
+
+frontend/node_modules
