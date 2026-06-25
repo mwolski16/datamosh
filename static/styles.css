@@ -196,6 +196,12 @@ h1 {
   line-height: 1.45;
 }
 
+.preset-field select.locked,
+.preset-field select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);

@@ -67,6 +67,8 @@ let pollTimer = null;
 let loadedPresets = [];
 let activePresetId = null;
 
+const TRANSITION_PRESET_ID = "transition";
+
 async function readJsonResponse(response) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
@@ -187,12 +189,47 @@ function toggleReferenceMode() {
     sourcePreviewLabel.textContent = "Source";
     moshStartLabel.textContent = "Mosh start";
   }
+
+  syncPresetLock();
+}
+
+function syncPresetLock() {
+  const transition = modeSelect.value === "transition";
+  presetSelect.disabled = transition;
+  presetSelect.classList.toggle("locked", transition);
+
+  if (transition) {
+    presetSelect.value = TRANSITION_PRESET_ID;
+    activePresetId = TRANSITION_PRESET_ID;
+    const preset = loadedPresets.find((item) => item.id === TRANSITION_PRESET_ID);
+    presetDescription.textContent = preset
+      ? `${preset.description} Preset is fixed in transition mode — tune sliders below.`
+      : "Preset is fixed in transition mode.";
+    return;
+  }
+
+  if (activePresetId === TRANSITION_PRESET_ID) {
+    activePresetId = null;
+    presetSelect.value = "";
+    presetDescription.textContent = "";
+  }
+}
+
+function applyTransitionPreset() {
+  const preset = loadedPresets.find((item) => item.id === TRANSITION_PRESET_ID);
+  if (preset) {
+    applyPreset(preset);
+  }
 }
 
 modeSelect.addEventListener("change", () => {
   dlog("frontend", `mode changed to ${modeSelect.value}`);
+  const enteringTransition = modeSelect.value === "transition";
   toggleReferenceMode();
   syncTransitionSliders();
+  if (enteringTransition) {
+    applyTransitionPreset();
+  }
 });
 toggleReferenceMode();
 
@@ -597,10 +634,14 @@ function renderPresets(presets) {
   if (activePresetId) {
     presetSelect.value = activePresetId;
   }
-  updatePresetDescription();
+  syncPresetLock();
 }
 
 presetSelect.addEventListener("change", () => {
+  if (modeSelect.value === "transition") {
+    presetSelect.value = TRANSITION_PRESET_ID;
+    return;
+  }
   const preset = loadedPresets.find((item) => item.id === presetSelect.value);
   if (preset) {
     applyPreset(preset);

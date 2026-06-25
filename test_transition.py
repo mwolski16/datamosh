@@ -10,6 +10,7 @@ from mosh import (
     TransitionWindow,
     _recalculate_transition_vcl_indices,
     _resolve_transition_window,
+    _transition_output_duration,
     _validate_transition_against_stream,
     _validate_transition_clip_a_keyframe,
 )
@@ -52,6 +53,9 @@ class TransitionWindowTests(unittest.TestCase):
         )
         self.assertEqual(window.start_seconds, 6.0)
         self.assertEqual(window.duration_seconds, 2.0)
+        self.assertEqual(window.motion_start_vcl, 0)
+        self.assertEqual(window.duration_vcl_count, 60)
+        self.assertEqual(window.suffix_start_vcl, 60)
 
     @patch("mosh.probe_fps", return_value=1.0)
     @patch("mosh.probe_duration")
@@ -119,9 +123,21 @@ class TransitionWindowTests(unittest.TestCase):
             fps_b=1.0,
         )
         self.assertEqual(recalculated.start_vcl_index, 1)
-        self.assertEqual(recalculated.motion_start_vcl, 1)
+        self.assertEqual(recalculated.motion_start_vcl, 0)
         self.assertEqual(recalculated.duration_vcl_count, 1)
-        self.assertEqual(recalculated.suffix_start_vcl, 2)
+        self.assertEqual(recalculated.suffix_start_vcl, 1)
+
+    def test_transition_output_duration(self) -> None:
+        transition = TransitionWindow(
+            start_seconds=6.0,
+            start_vcl_index=180,
+            duration_seconds=2.0,
+            duration_vcl_count=60,
+            motion_start_vcl=0,
+            suffix_start_vcl=60,
+        )
+        duration = _transition_output_duration(transition, clip_b_duration=10.0, fps_b=30.0)
+        self.assertAlmostEqual(duration, 6.0 + 2.0 + (10.0 - 60 / 30.0))
 
 
 if __name__ == "__main__":

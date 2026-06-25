@@ -101,6 +101,24 @@
       "no_prep": false,
       "no_audio": false,
       "seed": null
+    },
+    {
+      "id": "transition",
+      "name": "Transition — default",
+      "description": "Switches to transition mode with a 2.5s bridge, 960px output, and light P-frame duplication for a visible smear.",
+      "mode": "transition",
+      "gop": 250,
+      "mosh_start_seconds": 0,
+      "transition_duration_seconds": 2.5,
+      "duplicate_copies": 1,
+      "duplicate_probability": 1.0,
+      "keep_first_idr": 1,
+      "width": 960,
+      "crf": 22,
+      "remove_sps_pps": false,
+      "no_prep": false,
+      "no_audio": false,
+      "seed": null
     }
   ]
 }

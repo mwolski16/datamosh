@@ -86,20 +86,30 @@ def _remux_output(
     audio_source: Optional[Path],
     timing_source: Path,
     options: MoshOptions,
+    duration_seconds: Optional[float] = None,
 ) -> None:
+    if duration_seconds is None and options.duplicate_copies > 0 and audio_source is not None:
+        duration_seconds = probe_duration(timing_source)
+
     remux_h264(
         raw_output,
         output,
         audio_source=audio_source,
         fps=probe_fps(timing_source),
-        duration_seconds=(
-            probe_duration(timing_source)
-            if options.duplicate_copies > 0 and audio_source is not None
-            else None
-        ),
+        duration_seconds=duration_seconds,
         reencode=options.duplicate_copies > 0,
         crf=options.crf,
     )
+
+
+def _transition_output_duration(
+    transition: TransitionWindow,
+    clip_b_duration: float,
+    fps_b: float,
+) -> float:
+    """Total muxed duration: V1 prefix + bridge + clean V2 tail."""
+    v2_tail = max(clip_b_duration - transition.suffix_start_vcl / fps_b, 0.0)
+    return transition.start_seconds + transition.duration_seconds + v2_tail
 
 
 def _strip_with_mp4_safety(
@@ -238,9 +248,9 @@ def _resolve_transition_window(
         )
 
     start_vcl = min(int(resolved_start * fps_a), max_vcl_a)
-    motion_start_vcl = min(int(resolved_start * fps_b), max(int(duration_b * fps_b) - 1, 0))
-    duration_vcl = min(max(int(duration * fps_b), 1), max_vcl_b - motion_start_vcl)
-    suffix_start_vcl = motion_start_vcl + duration_vcl
+    motion_start_vcl = 0
+    duration_vcl = min(max(int(duration * fps_b), 1), max_vcl_b)
+    suffix_start_vcl = duration_vcl
 
     if suffix_start_vcl > max_vcl_b:
         raise ValueError(
@@ -285,12 +295,12 @@ def _recalculate_transition_vcl_indices(
     max_vcl_a = max(count_vcl_frames(clip_a_payload) - 1, 0)
     max_vcl_b = count_vcl_frames(clip_b_payload)
     start_vcl = min(int(transition.start_seconds * fps_a), max_vcl_a)
-    motion_start = min(int(transition.start_seconds * fps_b), max(max_vcl_b - 1, 0))
+    motion_start = 0
     duration_vcl = min(
         max(int(transition.duration_seconds * fps_b), 1),
-        max(0, max_vcl_b - motion_start),
+        max_vcl_b,
     )
-    suffix_start = motion_start + duration_vcl
+    suffix_start = duration_vcl
     return TransitionWindow(
         start_seconds=transition.start_seconds,
         start_vcl_index=start_vcl,
@@ -298,6 +308,36 @@ def _recalculate_transition_vcl_indices(
         duration_vcl_count=duration_vcl,
         motion_start_vcl=motion_start,
         suffix_start_vcl=suffix_start,
+    )
+
+
+def _align_transition_start_to_clip_a(
+    transition: TransitionWindow,
+    clip_a_payload: bytes,
+    fps_a: float,
+) -> TransitionWindow:
+    """Snap the cut to the nearest prepared keyframe on video 1."""
+    idrs = idr_vcl_indices(clip_a_payload)
+    if not idrs:
+        raise ValueError("Video 1 has no keyframes after prep.")
+
+    intended = transition.start_vcl_index
+    snap = min(idrs, key=lambda index: abs(index - intended))
+    max_snap_frames = max(int(fps_a * 1.0), 30)
+    if abs(snap - intended) > max_snap_frames:
+        raise ValueError(
+            f"Video 1 has no keyframe near the transition cut ({transition.start_seconds:.2f}s). "
+            f"The nearest keyframe is {snap / fps_a:.2f}s — move the transition start or "
+            "keep prep re-encode enabled."
+        )
+
+    return TransitionWindow(
+        start_seconds=snap / fps_a,
+        start_vcl_index=snap,
+        duration_seconds=transition.duration_seconds,
+        duration_vcl_count=transition.duration_vcl_count,
+        motion_start_vcl=transition.motion_start_vcl,
+        suffix_start_vcl=transition.suffix_start_vcl,
     )
 
 
@@ -590,7 +630,7 @@ def mosh_transition(
         options.mosh_start_seconds,
         options.transition_duration_seconds,
     )
-    suffix_seconds = transition.start_seconds + transition.duration_seconds
+    bridge_end_seconds = transition.duration_seconds
 
     if options.prep:
         report(10, "Preparing video 1 (keyframe at transition cut)")
@@ -611,7 +651,7 @@ def mosh_transition(
             width=options.width,
             crf=options.crf,
             gop=gop_b,
-            force_key_frames=[transition.start_seconds, suffix_seconds],
+            force_key_frames=[0.0, bridge_end_seconds],
         )
     else:
         report(15, "Extracting video 1 H.264 stream")
@@ -633,6 +673,10 @@ def mosh_transition(
         fps_a,
         fps_b,
     )
+    if options.prep:
+        transition = _align_transition_start_to_clip_a(
+            transition, clip_a_payload, fps_a
+        )
     _validate_transition_clip_a_keyframe(
         clip_a_payload,
         transition.start_vcl_index,
@@ -655,21 +699,6 @@ def mosh_transition(
     )
 
     idr_after = count_idr_frames(moshed)
-    idr_auto_kept = False
-    if idr_after == 0:
-        moshed = build_transition_stream(
-            clip_a_payload,
-            clip_b_payload,
-            transition_start_vcl=transition.start_vcl_index,
-            motion_start_vcl=transition.motion_start_vcl,
-            motion_end_vcl=transition.suffix_start_vcl,
-            suffix_start_vcl=transition.suffix_start_vcl,
-            duplicate_copies=options.duplicate_copies,
-            duplicate_probability=options.duplicate_probability,
-            seed=options.seed,
-        )
-        idr_after = count_idr_frames(moshed)
-        idr_auto_kept = True
 
     report(82, "Writing transition bitstream")
     raw_output = working / f"{output.stem}.moshed.h264"
@@ -677,12 +706,17 @@ def mosh_transition(
 
     report(92, "Remuxing MP4")
     audio_source = clip_a if options.keep_audio else None
+    clip_b_duration = probe_duration(clip_b)
+    remux_duration = None
+    if options.duplicate_copies > 0 and audio_source is not None:
+        remux_duration = _transition_output_duration(transition, clip_b_duration, fps_b)
     _remux_output(
         raw_output,
         output,
         audio_source=audio_source,
         timing_source=clip_a,
         options=options,
+        duration_seconds=remux_duration,
     )
     report(100, "Complete")
 
@@ -691,7 +725,7 @@ def mosh_transition(
         idr_before=idr_before,
         idr_after=idr_after,
         used_reference=True,
-        idr_auto_kept=idr_auto_kept,
+        idr_auto_kept=False,
         mosh_start_seconds=transition.start_seconds,
         mosh_start_vcl_index=transition.start_vcl_index,
         mosh_end_seconds=transition.start_seconds + transition.duration_seconds,
