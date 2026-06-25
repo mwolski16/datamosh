@@ -466,12 +466,17 @@ function renderTooltipContent(entry) {
   if (!entry) {
     return "<p>No tooltip configured for this control.</p>";
   }
+  const oneliner = entry.summary || entry.effect || "";
+  const details = entry.effect && entry.effect !== oneliner ? entry.effect : "";
   return `
     <h4>${escapeHtml(entry.title || "Control")}</h4>
-    <p class="tooltip-label">What it is</p>
-    <p>${escapeHtml(entry.summary || "")}</p>
-    <p class="tooltip-label">How it changes the video</p>
-    <p>${escapeHtml(entry.effect || "")}</p>
+    <p class="tooltip-oneliner">${escapeHtml(oneliner)}</p>
+    ${
+      details
+        ? `<p class="tooltip-label">Details</p>
+    <p class="tooltip-details">${escapeHtml(details)}</p>`
+        : ""
+    }
   `;
 }
 

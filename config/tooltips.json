@@ -1,82 +1,82 @@
 {
   "mode": {
     "title": "Mode",
-    "summary": "How clips are combined before moshing.",
-    "effect": "Single clip strips I-frames from one video. Splice two clips uses the anchor clip's first I-frame plus the motion clip's P-frames. Datamosh transition plays video 1 clean, a cross-clip smear bridge, then video 2 clean."
+    "summary": "Chooses whether the output is a single-clip mosh, a two-clip splice, or a V1 → smear → V2 transition.",
+    "effect": "Single clip removes I-frames from one video. Splice two clips keeps the anchor's first I-frame and splices the motion clip's P-frames on top. Datamosh transition plays video 1 clean, runs a timed cross-clip bridge, then plays video 2 clean."
   },
   "source": {
     "title": "Motion clip",
-    "summary": "The clip whose P-frames drive the smear.",
-    "effect": "In single-clip mode this is the only input. In splice mode its P-frames are concatenated after the anchor header, so movement and color from this clip bleed through the frozen anchor image."
+    "summary": "Provides the P-frames whose movement becomes the smear in the output.",
+    "effect": "In single-clip mode this is the only input. In splice mode its P-frames are concatenated after the anchor header, so movement and color from this clip bleed through the frozen anchor image. In transition mode this is video 1 until the cut point."
   },
   "reference": {
     "title": "Anchor clip",
-    "summary": "The still-image base for two-clip splice.",
-    "effect": "Only the first I-frame (plus SPS/PPS headers) from this clip is kept. The decoder treats it as the base image; motion-clip P-frames then update that stale reference, creating cross-video glitch trails."
+    "summary": "Locks this clip's first frame as the still image that motion bleeds through in splice mode.",
+    "effect": "Only the first I-frame (plus SPS/PPS headers) from this clip is kept. The decoder treats it as the base image; motion-clip P-frames then update that stale reference, creating cross-video glitch trails. In transition mode this is video 2."
   },
   "mosh_start_seconds": {
     "title": "Mosh / transition start",
-    "summary": "When the effect begins — on the source clip, or on video 1 in transition mode.",
-    "effect": "Single clip: footage before this stays normal. Transition mode: video 1 plays clean until this point, then the datamosh bridge begins using this frame as the pixel anchor."
+    "summary": "Everything before this time stays normal; the datamosh effect starts here.",
+    "effect": "Single clip: footage before this stays intact. Transition mode: video 1 plays clean until this point, then the bridge begins using this frame as the frozen pixel anchor while video 2's motion drives the smear."
   },
   "transition_duration_seconds": {
     "title": "Transition length",
-    "summary": "How long the datamosh bridge between video 1 and video 2 lasts.",
-    "effect": "Video 2's P-frames drive the smear for this duration while decoding against video 1's frame at the cut point. With prep enabled, keyframes are forced at the cut and at the end of this window so the bridge length matches the slider and video 2 resumes cleanly afterward."
+    "summary": "Sets how many seconds the cross-clip smear lasts before video 2 resumes clean.",
+    "effect": "Video 2's P-frames drive the smear for this duration while decoding against video 1's frame at the cut. Longer values mean a longer morph; shorter values hand off to clean video 2 sooner. With prep enabled, keyframes are placed at the end of this window so video 2 can resume cleanly."
   },
   "mosh_end_seconds": {
     "title": "Mosh end",
-    "summary": "When the datamosh effect stops, in seconds from the start of the source clip.",
-    "effect": "Footage after this time returns to normal with all keyframes kept. Set to 0 (or leave at end of clip) to mosh through the end. Must be after Mosh start. Combine both for a glitch burst in the middle of a clip."
+    "summary": "Stops the effect at this time so the rest of the clip plays normally again.",
+    "effect": "Footage after this time keeps all keyframes and decodes normally. Set to 0 (end of clip) to mosh through the entire video. Must be after mosh start. Use both sliders to limit the glitch to a burst in the middle of a clip."
   },
   "gop": {
     "title": "GOP length",
-    "summary": "Keyframe interval used during prep re-encode.",
-    "effect": "GOP = Group of Pictures. Higher values mean fewer I-frames in the prepared stream, so more P-frames depend on a single reference — stronger, longer smears. Lower values add more reset points and reduce mosh intensity. Only applies when prep re-encode is enabled."
+    "summary": "Higher values stretch smears longer; lower values add more reset points and weaken the mosh.",
+    "effect": "GOP is the keyframe interval used during prep re-encode. Fewer I-frames means more P-frames depend on one reference frame, which produces stronger, longer trails. Lower GOP adds frequent keyframes that cut smears short. Only applies when prep re-encode is enabled."
   },
   "duplicate_copies": {
     "title": "P-frame duplicates",
-    "summary": "How many extra copies of each P-frame are inserted.",
-    "effect": "Each duplicate reuses the same compressed P-frame data, stretching motion trails and stuttering movement. 0 = off. Values of 2–4 produce obvious temporal smear; higher values can make the clip much longer and more chaotic."
+    "summary": "Repeats P-frames in the output to stretch motion trails and add stutter.",
+    "effect": "Each duplicate reuses the same compressed P-frame data, so movement lingers and playback can feel longer or choppier. 0 turns duplication off. Values of 2–4 are obviously stuttery; higher values get chaotic. Duplicated streams are re-encoded for browser playback."
   },
   "duplicate_probability": {
     "title": "Duplicate chance",
-    "summary": "Probability that a given P-frame gets duplicated.",
-    "effect": "At 100% every eligible P-frame is duplicated. Lower values randomize the effect — some frames smear, others play normally — for a more broken, uneven glitch look. Use with Random seed for repeatable results."
+    "summary": "Controls how often each P-frame gets duplicated—100% smears every frame, lower values glitch randomly.",
+    "effect": "At 100% every eligible P-frame in the mosh window is duplicated. Lower values leave some frames normal and others smeared for an uneven, broken look. Pair with a random seed to reproduce the same pattern across runs."
   },
   "keep_first_idr": {
     "title": "Keep first IDR frames",
-    "summary": "Number of I-frames (IDR slices) to preserve in the output.",
-    "effect": "IDR frames reset the decoder. Removing all of them (0) breaks MP4 remux — ffmpeg writes audio only and players show a black screen. Keep at least 1 for playable MP4 output. Higher values leave more reset points and shorten smears."
+    "summary": "Keeps enough I-frames in the output for the file to play—use at least 1.",
+    "effect": "IDR frames reset the decoder. Removing all of them breaks MP4 remux and browser playback (audio-only or black video). Keeping 1 is the minimum for a playable file. Higher values preserve more reset points and shorten smears."
   },
   "width": {
     "title": "Output width",
-    "summary": "Optional horizontal scale during prep.",
-    "effect": "Re-encodes the video to this width (height scales to keep aspect ratio). Smaller widths process faster and can exaggerate blockiness. Leave empty to keep the source resolution."
+    "summary": "Scales the output smaller for faster renders and chunkier blocks.",
+    "effect": "Re-encodes during prep to this width; height scales to keep aspect ratio. Smaller widths process faster and can exaggerate blockiness in the smear. Leave empty to keep the source resolution."
   },
   "crf": {
     "title": "CRF",
-    "summary": "Constant Rate Factor — prep encode quality.",
-    "effect": "Lower CRF = higher quality, larger files, sharper blocks in glitches. Higher CRF = more compression artifacts that blend into the mosh. Default 18 is visually lossless-ish; try 22–28 for a grittier look."
+    "summary": "Lower = sharper, cleaner glitches; higher = more compression grit in the smear.",
+    "effect": "Constant Rate Factor controls prep encode quality. Lower CRF means higher quality, larger files, and sharper macroblocks in glitches. Higher CRF adds compression artifacts that blend into the mosh. Default 18 is near-visually lossless; 22–28 looks grittier."
   },
   "seed": {
     "title": "Random seed",
-    "summary": "Fixes randomness for P-frame duplication.",
-    "effect": "When duplicate chance is below 100%, the same seed reproduces the same pattern of duplicated frames across runs. Leave empty for a different random pattern each time."
+    "summary": "Locks the random duplicate pattern so the same export looks the same every time.",
+    "effect": "When duplicate chance is below 100%, the seed picks which P-frames get duplicated. The same seed reproduces the same glitch pattern across runs. Leave empty for a different random pattern each time."
   },
   "remove_sps_pps": {
     "title": "Remove SPS/PPS",
-    "summary": "Strip sequence/picture parameter sets from the bitstream.",
-    "effect": "SPS and PPS tell the decoder how to interpret the stream. Removing them can cause harsher decode errors and more extreme corruption. Single-clip mode only — can make output unplayable in some players."
+    "summary": "Strips decoder headers for more extreme corruption—and a higher chance the output won't play.",
+    "effect": "SPS and PPS tell the decoder how to interpret the H.264 stream. Removing them forces harsher decode errors and wilder visual breaks. Single-clip mode only; can make output unplayable in strict players."
   },
   "no_prep": {
     "title": "Skip prep re-encode",
-    "summary": "Copy the existing H.264 stream instead of re-encoding.",
-    "effect": "Faster, but only works well if the source already has long GOPs and no B-frames. Videos with frequent keyframes or B-frames will mosh weakly or unpredictably. In transition mode, prep also adds mid-clip keyframes on video 2 so the clean ending can start — disabling this often causes transition length errors."
+    "summary": "Uses the source H.264 as-is—faster, but usually weaker or unpredictable moshing.",
+    "effect": "Prep re-encodes to long GOPs with no B-frames so moshing behaves predictably. Skipping prep copies the existing stream, which only works well when the source already has long GOPs. Frequent keyframes or B-frames weaken the effect. In transition mode, prep also places keyframes for a clean video 2 handoff—skipping it often causes errors."
   },
   "no_audio": {
     "title": "Drop audio",
-    "summary": "Exclude audio from the output file.",
-    "effect": "Video-only MP4. Useful when you only need the visual glitch or plan to add sound elsewhere. When off, audio is copied from the source clip."
+    "summary": "Exports video only with no sound track.",
+    "effect": "The output MP4 contains video only. Useful for visuals you'll sound-design later or drop into an editor. When off, audio is copied from the source clip (video 1 in transition mode)."
   }
 }
