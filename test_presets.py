@@ -16,8 +16,8 @@ class PresetTests(unittest.TestCase):
         preset = get_preset("classic")
         options = options_from_preset_id("classic")
         self.assertEqual(preset["name"], "Classic smear")
-        self.assertEqual(options.gop, 300)
-        self.assertEqual(options.width, 1280)
+        self.assertEqual(options.gop, 500)
+        self.assertEqual(options.width, 960)
         self.assertIsNone(options.mosh_start_seconds)
 
 
