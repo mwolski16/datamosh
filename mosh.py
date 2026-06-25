@@ -79,6 +79,29 @@ def _write_bytes(path: Path, payload: bytes) -> None:
     path.write_bytes(payload)
 
 
+def _remux_output(
+    raw_output: Path,
+    output: Path,
+    *,
+    audio_source: Optional[Path],
+    timing_source: Path,
+    options: MoshOptions,
+) -> None:
+    remux_h264(
+        raw_output,
+        output,
+        audio_source=audio_source,
+        fps=probe_fps(timing_source),
+        duration_seconds=(
+            probe_duration(timing_source)
+            if options.duplicate_copies > 0 and audio_source is not None
+            else None
+        ),
+        reencode=options.duplicate_copies > 0,
+        crf=options.crf,
+    )
+
+
 def _strip_with_mp4_safety(
     payload: bytes,
     *,
@@ -421,7 +444,13 @@ def mosh_single(
 
     report(90, "Remuxing MP4")
     audio_source = source if options.keep_audio else None
-    remux_h264(raw_output, output, audio_source=audio_source)
+    _remux_output(
+        raw_output,
+        output,
+        audio_source=audio_source,
+        timing_source=source,
+        options=options,
+    )
     report(100, "Complete")
 
     return MoshResult(
@@ -516,7 +545,13 @@ def mosh_two_clip(
 
     report(92, "Remuxing MP4")
     audio_source = target if options.keep_audio else None
-    remux_h264(raw_output, output, audio_source=audio_source)
+    _remux_output(
+        raw_output,
+        output,
+        audio_source=audio_source,
+        timing_source=target,
+        options=options,
+    )
     report(100, "Complete")
 
     return MoshResult(
@@ -642,7 +677,13 @@ def mosh_transition(
 
     report(92, "Remuxing MP4")
     audio_source = clip_a if options.keep_audio else None
-    remux_h264(raw_output, output, audio_source=audio_source)
+    _remux_output(
+        raw_output,
+        output,
+        audio_source=audio_source,
+        timing_source=clip_a,
+        options=options,
+    )
     report(100, "Complete")
 
     return MoshResult(

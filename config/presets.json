@@ -71,11 +71,11 @@
     {
       "id": "fast",
       "name": "Fast preview",
-      "description": "Very low res and high CRF for quick iteration while dialing in settings.",
+      "description": "Very low res and high CRF for quick iteration. Skips P-frame duplication so the preview plays in the browser.",
       "mode": "single",
       "gop": 300,
       "mosh_start_seconds": 0,
-      "duplicate_copies": 1,
+      "duplicate_copies": 0,
       "duplicate_probability": 1.0,
       "keep_first_idr": 1,
       "width": 480,

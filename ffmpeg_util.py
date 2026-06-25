@@ -106,13 +106,51 @@ def remux_h264(
     destination: Path,
     *,
     audio_source: Optional[Path] = None,
+    fps: Optional[float] = None,
+    duration_seconds: Optional[float] = None,
+    reencode: bool = False,
+    crf: int = 18,
 ) -> None:
-    command = ["-y", "-f", "h264", "-i", str(video)]
+    """
+    Mux a raw Annex-B H.264 bitstream into MP4.
+
+    P-frame duplication in the moshed stream produces invalid reference chains
+    that browser decoders reject. When ``reencode`` is True, decode through
+    ffmpeg and emit a fresh H.264 track for web playback.
+    """
+    command: List[str] = ["-y"]
+    if fps is not None and fps > 0:
+        command.extend(["-framerate", f"{fps:.6f}"])
+    command.extend(["-f", "h264", "-i", str(video)])
+
     if audio_source is not None:
         command.extend(["-i", str(audio_source), "-map", "0:v:0", "-map", "1:a?"])
     else:
         command.append("-an")
-    command.extend(["-c", "copy", "-movflags", "+faststart", str(destination)])
+
+    if duration_seconds is not None and duration_seconds > 0:
+        command.extend(["-t", f"{duration_seconds:.6f}"])
+
+    if reencode:
+        command.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                str(crf),
+                "-pix_fmt",
+                "yuv420p",
+            ]
+        )
+        if audio_source is not None:
+            command.extend(["-c:a", "copy"])
+    else:
+        command.append("-c")
+        command.append("copy")
+
+    command.extend(["-movflags", "+faststart", str(destination)])
     run_ffmpeg(command)
     if not _output_has_video(destination):
         raise FfmpegError(
