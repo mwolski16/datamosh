@@ -13,6 +13,10 @@ from mosh import MoshOptions, mosh_single, mosh_transition, mosh_two_clip
 from util import cleanup_temp_files
 
 
+def _blog(msg: str) -> None:
+    print(f"[backend] {msg}")
+
+
 class JobStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -76,6 +80,7 @@ JOB_STORE = JobStore()
 
 def _make_progress(job_id: str) -> ProgressCallback:
     def report(percent: int, stage: str) -> None:
+        _blog(f"job={job_id} progress={percent}% stage={stage}")
         JOB_STORE.update(job_id, progress=percent, stage=stage)
 
     return report
@@ -90,6 +95,7 @@ def run_job(
     options: MoshOptions,
     reference_path: Optional[Path] = None,
 ) -> None:
+    _blog(f"job={job_id} starting mode={mode} source={source_path.name}")
     progress = _make_progress(job_id)
 
     try:
@@ -124,11 +130,13 @@ def run_job(
             )
             mode_label = "single-clip"
     except Exception as exc:  # noqa: BLE001 - surfaced to client as job error
+        _blog(f"job={job_id} failed: {exc}")
         JOB_STORE.fail(job_id, str(exc))
         return
     finally:
         cleanup_temp_files(output_path)
 
+    _blog(f"job={job_id} complete output={output_path.name}")
     JOB_STORE.complete(
         job_id,
         {

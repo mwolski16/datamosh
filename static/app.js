@@ -1,3 +1,15 @@
+const DEV = window.devmode === true;
+
+function dlog(category, message, data) {
+  if (!DEV) return;
+  const ts = new Date().toISOString().split("T")[1].replace("Z", "");
+  if (data !== undefined) {
+    console.debug(`[${category}] ${ts} ${message}`, data);
+  } else {
+    console.debug(`[${category}] ${ts} ${message}`);
+  }
+}
+
 const modeSelect = document.getElementById("mode");
 const spliceBanner = document.getElementById("splice-banner");
 const transitionBanner = document.getElementById("transition-banner");
@@ -139,6 +151,7 @@ function toggleReferenceMode() {
   const twoClip = mode === "two";
   const transition = mode === "transition";
   const dualClip = isDualClipMode();
+  dlog("frontend", `toggleReferenceMode mode=${mode} dualClip=${dualClip}`);
 
   referenceDropzone.classList.toggle("hidden", !dualClip);
   spliceBanner.classList.toggle("hidden", !twoClip);
@@ -176,6 +189,7 @@ function toggleReferenceMode() {
 }
 
 modeSelect.addEventListener("change", () => {
+  dlog("frontend", `mode changed to ${modeSelect.value}`);
   toggleReferenceMode();
   syncTransitionSliders();
 });
@@ -316,6 +330,7 @@ function validateTransitionInputs() {
 }
 
 function setSourceFile(file) {
+  dlog("frontend", `setSourceFile name=${file.name} size=${file.size}`);
   sourceInput.files = createFileList(file);
   sourceName.textContent = file.name;
   if (sourceObjectUrl) {
@@ -353,6 +368,7 @@ function setSourceFile(file) {
 }
 
 function setReferenceFile(file) {
+  dlog("frontend", `setReferenceFile name=${file.name} size=${file.size}`);
   referenceInput.files = createFileList(file);
   referenceName.textContent = file.name;
   revokeReferencePreview();
@@ -364,6 +380,7 @@ function setReferenceFile(file) {
 }
 
 function swapClips() {
+  dlog("frontend", "swapClips");
   const sourceFile = sourceInput.files?.[0];
   const referenceFile = referenceInput.files?.[0];
   if (!sourceFile && !referenceFile) {
@@ -482,8 +499,10 @@ function initTooltips() {
 }
 
 async function loadTooltips() {
+  dlog("frontend", "loadTooltips fetching /api/tooltips");
   try {
     const response = await fetch("/api/tooltips");
+    dlog("frontend", `loadTooltips response ${response.status}`);
     if (!response.ok) {
       return;
     }
@@ -495,6 +514,7 @@ async function loadTooltips() {
 }
 
 function applyPreset(preset) {
+  dlog("frontend", `applyPreset id=${preset.id} name=${preset.name} mode=${preset.mode}`);
   const presetMode = preset.mode || "single";
   if (presetMode === "two" || presetMode === "transition") {
     modeSelect.value = presetMode;
@@ -590,8 +610,10 @@ presetSelect.addEventListener("change", () => {
 });
 
 async function loadPresets() {
+  dlog("frontend", "loadPresets fetching /api/presets");
   try {
     const response = await fetch("/api/presets");
+    dlog("frontend", `loadPresets response ${response.status}`);
     if (!response.ok) {
       return;
     }
@@ -609,6 +631,7 @@ function sleep(ms) {
 }
 
 async function pollJob(jobId) {
+  dlog("frontend", `pollJob started jobId=${jobId}`);
   while (true) {
     const response = await fetch(`/api/jobs/${jobId}`);
     const payload = await readJsonResponse(response);
@@ -619,9 +642,11 @@ async function pollJob(jobId) {
     setProgress(payload.progress ?? 0, payload.stage ?? "Working…");
 
     if (payload.status === "complete" && payload.result) {
+      dlog("frontend", `pollJob complete jobId=${jobId}`, payload.result);
       return payload.result;
     }
     if (payload.status === "error") {
+      dlog("frontend", `pollJob error jobId=${jobId}`, payload.error);
       throw new Error(payload.error || "Datamosh failed.");
     }
 
@@ -750,19 +775,32 @@ moshButton.addEventListener("click", async () => {
   }
 
   try {
+    dlog("frontend", "POST /api/mosh", {
+      mode: modeSelect.value,
+      sourceFile: sourceFile.name,
+      sourceFileSize: sourceFile.size,
+      referenceFile: referenceFile?.name,
+      moshStart: moshStartInput.value,
+      moshEnd: moshEndInput.value,
+      transitionDuration: transitionDurationInput.value,
+      gop: gopInput.value,
+    });
     const response = await fetch("/api/mosh", {
       method: "POST",
       body: formData,
     });
     const payload = await readJsonResponse(response);
+    dlog("frontend", `POST /api/mosh response ${response.status}`, payload);
     if (!response.ok) {
       throw new Error(payload.error || "Datamosh failed.");
     }
 
     const result = await pollJob(payload.job_id);
+    dlog("frontend", "job finished applying result", result);
     setProgress(100, "Complete");
     setStatus(applyResult(result));
   } catch (error) {
+    dlog("frontend", `mosh error: ${error.message}`);
     hideProgress();
     setStatus(error.message || "Unexpected error.", true);
   } finally {

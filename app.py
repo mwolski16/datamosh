@@ -24,6 +24,10 @@ TOOLTIPS_PATH = BASE_DIR / "config" / "tooltips.json"
 PRESETS_PATH = BASE_DIR / "config" / "presets.json"
 MAX_UPLOAD_MB = 512
 
+
+def _blog(msg: str) -> None:
+    print(f"[backend] {msg}")
+
 app = Flask(
     __name__,
     template_folder=str(BASE_DIR / "templates"),
@@ -126,16 +130,21 @@ def index() -> str:
 
 @app.get("/api/presets")
 def api_presets() -> Any:
-    return jsonify({"presets": load_presets()})
+    presets = load_presets()
+    _blog(f"GET /api/presets -> {len(presets)} presets")
+    return jsonify({"presets": presets})
 
 
 @app.get("/api/tooltips")
 def api_tooltips() -> Any:
-    return jsonify(_load_tooltips())
+    tooltips = _load_tooltips()
+    _blog(f"GET /api/tooltips -> {len(tooltips)} entries")
+    return jsonify(tooltips)
 
 
 @app.post("/api/mosh")
 def api_mosh() -> Any:
+    _blog(f"POST /api/mosh mode={request.form.get('mode', 'single')}")
     try:
         require_ffmpeg()
     except FfmpegError as exc:
@@ -189,6 +198,7 @@ def api_mosh() -> Any:
         reference_path=reference_path,
     )
 
+    _blog(f"POST /api/mosh -> job_id={job.job_id}")
     return jsonify({"job_id": job.job_id}), 202
 
 
@@ -219,7 +229,7 @@ def serve_output(filename: str) -> Any:
 @app.errorhandler(Exception)
 def handle_api_errors(exc: Exception) -> Any:
     if not request.path.startswith("/api/"):
-        raise exc
+        return exc
     return jsonify({"error": str(exc)}), 500
 
 
