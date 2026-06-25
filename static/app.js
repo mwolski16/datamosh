@@ -1,6 +1,7 @@
-const DEV = window.devmode === true;
+window.devmode ??= false;
 
 function dlog(category, message, data) {
+  const DEV = window.devmode;
   if (!DEV) return;
   const ts = new Date().toISOString().split("T")[1].replace("Z", "");
   if (data !== undefined) {
